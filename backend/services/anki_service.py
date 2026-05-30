@@ -26,19 +26,44 @@ COMPOUND_MODEL = genanki.Model(
     },
   ])
 
-PATHWAY_MODEL = genanki.Model(
+# Use a template that mimics Anki's Image Occlusion Enhanced note type
+IO_MODEL = genanki.Model(
   1607392320,
-  'Pathway Occlusion Model',
+  'Image Occlusion Enhanced',
   fields=[
-    {'name': 'OccludedImage'},
-    {'name': 'MasterImage'},
-    {'name': 'RevealedName'},
+    {'name': 'Image'},
+    {'name': 'Question Mask'},
+    {'name': 'Answer Mask'},
+    {'name': 'Original Image'},
+    {'name': 'Header'},
+    {'name': 'Footer'},
+    {'name': 'Remarks'},
   ],
   templates=[
     {
-      'name': 'Card 1',
-      'qfmt': '{{OccludedImage}}',
-      'afmt': '{{FrontSide}}<hr id="answer">{{MasterImage}}<br><br><b>{{RevealedName}}</b>',
+      'name': 'Image Occlusion Enhanced',
+      'qfmt': '''
+        <div id="io-header">{{Header}}</div>
+        <div id="io-wrapper" style="position:relative; display:inline-block;">
+            <div id="io-image">{{Image}}</div>
+            <div id="io-overlay" style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none;">
+                {{Question Mask}}
+            </div>
+        </div>
+        <div id="io-footer">{{Footer}}</div>
+      ''',
+      'afmt': '''
+        <div id="io-header">{{Header}}</div>
+        <div id="io-wrapper" style="position:relative; display:inline-block;">
+            <div id="io-image">{{Image}}</div>
+            <div id="io-overlay" style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none;">
+                {{Answer Mask}}
+            </div>
+        </div>
+        <div id="io-footer">{{Footer}}</div>
+        <hr>
+        <div id="io-remarks">{{Remarks}}</div>
+      ''',
     },
   ])
 
@@ -181,8 +206,9 @@ def create_pathway_deck(file_path: str, api_key: str, output_deck_path: str) -> 
     with open(json_path, 'r') as f:
         layout_data = json.load(f)
 
-    # Open the rendered master PNG to get its dimensions and to draw on
-    master_img = Image.open(master_png_path).convert('RGB')
+    # Open the rendered master PNG to get its dimensions
+    master_img = Image.open(master_png_path)
+    img_width, img_height = master_img.size
 
     deck_id = 2059400111
     deck = genanki.Deck(deck_id, 'Biochemistry Pathways')
@@ -192,23 +218,15 @@ def create_pathway_deck(file_path: str, api_key: str, output_deck_path: str) -> 
     master_filename = os.path.basename(master_png_path)
 
     # Parse graphviz JSON layout
-    # Graphviz json output gives nodes in 'objects' array
     objects = layout_data.get('objects', [])
 
-    # Graphviz outputs coordinates in points (72 points per inch).
-    # The PNG output resolution (DPI) determines pixel coordinates. Default Graphviz DPI is usually 96.
-    # The JSON format gives bb (bounding box) as "llx,lly,urx,ury" in points.
-
-    # To properly map coordinates, we extract bounding boxes
-    # Often, drawing black boxes directly over the nodes requires translating these coordinates
-    # We will approximate by drawing over the center and dimensions provided in 'pos' and 'width'/'height'
+    # We will gather all SVG rectangles for the "hide all" mask
+    all_rects = []
+    node_data = []
 
     for obj in objects:
         if 'name' not in obj or 'label' not in obj:
             continue
-
-        node_name = obj['name']
-        node_label = obj['label']
 
         # Nodes don't have 'bb', they have 'pos' (center "x,y"), 'width' (inches), and 'height' (inches)
         pos_str = obj.get('pos', "")
@@ -218,7 +236,6 @@ def create_pathway_deck(file_path: str, api_key: str, output_deck_path: str) -> 
         pos_coords = [float(x) for x in pos_str.split(',')]
         cx_pt, cy_pt = pos_coords
 
-        # width and height are in inches, need to convert to points (*72)
         width_pt = float(obj.get('width', 0)) * 72.0
         height_pt = float(obj.get('height', 0)) * 72.0
 
@@ -227,41 +244,59 @@ def create_pathway_deck(file_path: str, api_key: str, output_deck_path: str) -> 
         lly = cy_pt - (height_pt / 2.0)
         ury = cy_pt + (height_pt / 2.0)
 
-        # In Graphviz points, y grows upwards. In Pillow pixels, y grows downwards.
-        # Graphviz JSON output usually gives a 'bb' for the whole graph to know total height.
         graph_bb = layout_data['bb'].split(',')
         graph_height_pt = float(graph_bb[3])
 
-        # Translate to pixel coordinates assuming 96 DPI (96 pixels per 72 points = 4/3 multiplier)
         dpi_mult = 96.0 / 72.0
 
-        # Invert Y axis
         pixel_lly = (graph_height_pt - ury) * dpi_mult
         pixel_ury = (graph_height_pt - lly) * dpi_mult
         pixel_llx = llx * dpi_mult
         pixel_urx = urx * dpi_mult
 
-        # Expand box slightly to cover text fully
         pad = 5
-        box = [pixel_llx - pad, pixel_lly - pad, pixel_urx + pad, pixel_ury + pad]
+        x = pixel_llx - pad
+        y = pixel_lly - pad
+        w = (pixel_urx - pixel_llx) + (pad * 2)
+        h = (pixel_ury - pixel_lly) + (pad * 2)
 
-        # Create occluded image
-        occluded_img = master_img.copy()
-        draw = ImageDraw.Draw(occluded_img)
-        draw.rectangle(box, fill="black")
+        rect_svg = f'<rect x="{x}" y="{y}" width="{w}" height="{h}" fill="#FFE3A8" stroke="#333" stroke-width="1"></rect>'
 
-        occluded_filename = f"{uuid.uuid4().hex}_occluded.png"
-        occluded_path = os.path.join(tmp_dir, occluded_filename)
-        occluded_img.save(occluded_path)
+        node_data.append({
+            'label': obj['label'],
+            'rect': rect_svg
+        })
+        all_rects.append(rect_svg)
 
-        media_files.append(occluded_path)
+    # Now create a "Hide All, Guess One" style note for each node
+    for target_node in node_data:
+        # Question mask shows ALL boxes
+        q_mask = f'<svg width="{img_width}" height="{img_height}" viewBox="0 0 {img_width} {img_height}">'
+        for rect in all_rects:
+            if rect == target_node['rect']:
+                # The target shape is styled differently to stand out
+                q_mask += rect.replace('fill="#FFE3A8"', 'fill="#FF5252"')
+            else:
+                q_mask += rect
+        q_mask += '</svg>'
+
+        # Answer mask hides all EXCEPT the target box (which is transparent/omitted)
+        a_mask = f'<svg width="{img_width}" height="{img_height}" viewBox="0 0 {img_width} {img_height}">'
+        for rect in all_rects:
+            if rect != target_node['rect']:
+                a_mask += rect
+        a_mask += '</svg>'
 
         note = genanki.Note(
-            model=PATHWAY_MODEL,
+            model=IO_MODEL,
             fields=[
-                f'<img src="{occluded_filename}">',
                 f'<img src="{master_filename}">',
-                node_label
+                q_mask,
+                a_mask,
+                f'<img src="{master_filename}">',
+                'Metabolic Pathway',
+                '',
+                target_node['label']
             ]
         )
         deck.add_note(note)
