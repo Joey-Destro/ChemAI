@@ -170,21 +170,24 @@ def create_pathway_deck(file_path: str, api_key: str, output_deck_path: str) -> 
     text_content = extract_text(file_path)
 
     prompt = f"""
-    Analyze the following text and identify metabolic pathways (like glycolysis, citric acid cycle, etc.).
-    Extract the main pathway as a directed graph.
-    Return ONLY a valid JSON object representing the graph. The JSON MUST follow this exact structure:
+    Analyzuj následující text a identifikuj metabolické dráhy (např. glykolýza, citrátový cyklus atd.).
+    Extrahuj hlavní dráhu jako orientovaný graf.
+
+    DŮLEŽITÉ: Veškeré názvy metabolitů, enzymů a drah MUSÍ BÝT V BEZCHYBNÉ ČEŠTINĚ (použij správnou lékařskou biochemickou terminologii).
+
+    Vrať POUZE validní JSON objekt reprezentující graf. JSON MUSÍ mít PŘESNĚ tuto strukturu:
     {{
         "nodes": [
-            {{"id": "n1", "label": "Glucose"}},
-            {{"id": "n2", "label": "Glucose-6-phosphate"}}
+            {{"id": "n1", "label": "Glukóza"}},
+            {{"id": "n2", "label": "Glukóza-6-fosfát"}}
         ],
         "edges": [
-            {{"source": "n1", "target": "n2", "label": "Hexokinase"}}
+            {{"source": "n1", "target": "n2", "label": "Hexokináza"}}
         ]
     }}
-    Do not include markdown blocks or any other text.
+    Nevypisuj žádný markdown, žádný úvodní ani závěrečný text.
 
-    Text:
+    Text k analýze:
     {text_content[:30000]}
     """
 
