@@ -60,7 +60,7 @@ def extract_text(file_path: str) -> str:
 
 def create_standard_compounds_deck(file_path: str, api_key: str, output_deck_path: str) -> str:
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('models/gemini-1.5-flash-latest')
+    model = genai.GenerativeModel('gemini-3.5-flash')
 
     text_content = extract_text(file_path)
 
@@ -122,7 +122,7 @@ def create_standard_compounds_deck(file_path: str, api_key: str, output_deck_pat
 
 def create_pathway_deck(file_path: str, api_key: str, output_deck_path: str) -> str:
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('models/gemini-1.5-flash-latest')
+    model = genai.GenerativeModel('gemini-3.5-flash')
 
     text_content = extract_text(file_path)
 
