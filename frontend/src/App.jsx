@@ -62,7 +62,7 @@ function App() {
     }
 
     try {
-      const apiUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000/generate';
+      const apiUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8080/generate';
 
       let response;
       try {
@@ -73,7 +73,7 @@ function App() {
       } catch (networkError) {
         throw new Error(
           `Failed to connect to the backend server at ${apiUrl}. ` +
-          `If you are running this locally, ensure you have started the backend with 'uvicorn main:app --port 8000'. ` +
+          `If you are running this locally, ensure you have started the backend with 'uvicorn main:app --port 8080' or via docker. ` +
           `If this is deployed, ensure VITE_BACKEND_URL is set correctly.`
         );
       }

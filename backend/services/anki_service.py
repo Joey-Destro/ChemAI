@@ -60,7 +60,7 @@ def extract_text(file_path: str) -> str:
 
 def create_standard_compounds_deck(file_path: str, api_key: str, output_deck_path: str) -> str:
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = genai.GenerativeModel('models/gemini-1.5-flash-latest')
 
     text_content = extract_text(file_path)
 
@@ -122,7 +122,7 @@ def create_standard_compounds_deck(file_path: str, api_key: str, output_deck_pat
 
 def create_pathway_deck(file_path: str, api_key: str, output_deck_path: str) -> str:
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = genai.GenerativeModel('models/gemini-1.5-flash-latest')
 
     text_content = extract_text(file_path)
 
@@ -210,13 +210,22 @@ def create_pathway_deck(file_path: str, api_key: str, output_deck_path: str) -> 
         node_name = obj['name']
         node_label = obj['label']
 
-        # 'bb' format is "llx,lly,urx,ury"
-        bb_str = obj.get('bb', "")
-        if not bb_str:
+        # Nodes don't have 'bb', they have 'pos' (center "x,y"), 'width' (inches), and 'height' (inches)
+        pos_str = obj.get('pos', "")
+        if not pos_str:
             continue
 
-        coords = [float(x) for x in bb_str.split(',')]
-        llx, lly, urx, ury = coords
+        pos_coords = [float(x) for x in pos_str.split(',')]
+        cx_pt, cy_pt = pos_coords
+
+        # width and height are in inches, need to convert to points (*72)
+        width_pt = float(obj.get('width', 0)) * 72.0
+        height_pt = float(obj.get('height', 0)) * 72.0
+
+        llx = cx_pt - (width_pt / 2.0)
+        urx = cx_pt + (width_pt / 2.0)
+        lly = cy_pt - (height_pt / 2.0)
+        ury = cy_pt + (height_pt / 2.0)
 
         # In Graphviz points, y grows upwards. In Pillow pixels, y grows downwards.
         # Graphviz JSON output usually gives a 'bb' for the whole graph to know total height.
