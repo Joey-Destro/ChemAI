@@ -170,34 +170,21 @@ def create_pathway_deck(file_path: str, api_key: str, output_deck_path: str) -> 
     text_content = extract_text(file_path)
 
     prompt = f"""
-    Jsi přísný zkoušející z lékařské biochemie. Tvým úkolem je extrahovat KOMPLETNÍ, absolutně detailní metabolické dráhy z textu a převést je na graf.
-
-    Tvá striktní pravidla:
-    1. ZÁKAZ SHRNUTÍ: Nesmíš dráhu zkrátit. Musíš uvést VŠECHNY meziprodukty.
-    2. ENZYMY A KOFAKTORY JSOU POVINNÉ: Každá reakce musí mít enzym jako UZEL.
-    3. KOMPARTMENTY: Pokud reakce probíhá ve specifické organele/kompartmentu (např. Mitochondrie, Cytosol), MUSÍŠ uzel zařadit do příslušného kompartmentu. Pokud není kompartment jasný, nepřiřazuj ho.
-    4. STRUKTURA GRAFU:
-       - Substráty a produkty budou uzly typu "metabolite".
-       - Enzymy budou uzly typu "enzyme".
-       - Propoj substrát -> enzym -> produkt.
-    5. Jazyk: Česká terminologie.
-
-    VYŽADOVANÝ VÝSTUP:
-    Vrať POUZE validní JSON s přesně touto strukturou:
+    Analyze the following text and identify metabolic pathways (like glycolysis, citric acid cycle, etc.).
+    Extract the main pathway as a directed graph.
+    Return ONLY a valid JSON object representing the graph. The JSON MUST follow this exact structure:
     {{
         "nodes": [
-            {{"id": "n1", "label": "Glukóza", "type": "metabolite", "compartment": "Cytosol"}},
-            {{"id": "e1", "label": "Hexokináza", "type": "enzyme", "compartment": "Cytosol"}},
-            {{"id": "n2", "label": "Glukóza-6-fosfát", "type": "metabolite", "compartment": "Cytosol"}}
+            {{"id": "n1", "label": "Glucose"}},
+            {{"id": "n2", "label": "Glucose-6-phosphate"}}
         ],
         "edges": [
-            {{"source": "n1", "target": "e1"}},
-            {{"source": "e1", "target": "n2"}}
+            {{"source": "n1", "target": "n2", "label": "Hexokinase"}}
         ]
     }}
-    Nevypisuj žádný markdown, žádný úvodní ani závěrečný text.
+    Do not include markdown blocks or any other text.
 
-    Text k analýze:
+    Text:
     {text_content[:30000]}
     """
 
@@ -212,39 +199,15 @@ def create_pathway_deck(file_path: str, api_key: str, output_deck_path: str) -> 
     master_svg_path = os.path.join(tmp_dir, "master")
 
     dot = graphviz.Digraph(format='svg')
-    dot.attr(rankdir='TB', nodesep='0.8', ranksep='1.0', fontname='Helvetica', bgcolor='white', compound='true')
+    dot.attr(rankdir='TB')
 
     nodes = graph_data.get("nodes", [])
     edges = graph_data.get("edges", [])
 
-    # Group nodes by compartment
-    compartments = {}
     for node in nodes:
-        comp = node.get('compartment', 'Unassigned')
-        if not comp: comp = 'Unassigned'
-        if comp not in compartments:
-            compartments[comp] = []
-        compartments[comp].append(node)
-
-    for comp_name, comp_nodes in compartments.items():
-        if comp_name == 'Unassigned':
-            for node in comp_nodes:
-                if node.get('type', 'metabolite') == 'enzyme':
-                    dot.node(node['id'], node['label'], shape='box', style='filled,rounded', fillcolor='#E1F5FE', color='#0288D1', fontname='Helvetica-Bold', fontcolor='#01579B', margin='0.2,0.1')
-                else:
-                    dot.node(node['id'], node['label'], shape='oval', style='filled', fillcolor='#F3E5F5', color='#7B1FA2', fontname='Helvetica', fontcolor='#4A148C')
-        else:
-            # Create a cluster for the compartment
-            with dot.subgraph(name=f'cluster_{comp_name}') as c:
-                c.attr(label=comp_name, style='dashed', color='gray', fontname='Helvetica-Bold', fontsize='16', fontcolor='#424242')
-                for node in comp_nodes:
-                    if node.get('type', 'metabolite') == 'enzyme':
-                        c.node(node['id'], node['label'], shape='box', style='filled,rounded', fillcolor='#E1F5FE', color='#0288D1', fontname='Helvetica-Bold', fontcolor='#01579B', margin='0.2,0.1')
-                    else:
-                        c.node(node['id'], node['label'], shape='oval', style='filled', fillcolor='#F3E5F5', color='#7B1FA2', fontname='Helvetica', fontcolor='#4A148C')
-
+        dot.node(node['id'], node['label'])
     for edge in edges:
-        dot.edge(edge['source'], edge['target'], color='#757575', arrowsize='0.8')
+        dot.edge(edge['source'], edge['target'], label=edge.get('label', ''))
 
     dot.render(master_svg_path)
 
@@ -269,53 +232,54 @@ def create_pathway_deck(file_path: str, api_key: str, output_deck_path: str) -> 
     media_files = [master_png_path]
     master_filename = os.path.basename(master_png_path)
 
+    # Parse graphviz JSON layout
+    objects = layout_data.get('objects', [])
+
     all_rects = []
     node_data = []
 
-    # Graphviz DPI logic for translating coordinates
-    dpi_mult = 96.0 / 72.0
-    graph_bb = layout_data['bb'].split(',')
-    graph_height_pt = float(graph_bb[3])
+    for obj in objects:
+        if 'name' not in obj or 'label' not in obj:
+            continue
 
-    def process_objects(objects_list):
-        for obj in objects_list:
-            if 'name' in obj and 'label' in obj and not obj['name'].startswith('cluster_'):
-                pos_str = obj.get('pos', "")
-                if pos_str:
-                    pos_coords = [float(x) for x in pos_str.split(',')]
-                    cx_pt, cy_pt = pos_coords
-                    width_pt = float(obj.get('width', 0)) * 72.0
-                    height_pt = float(obj.get('height', 0)) * 72.0
+        pos_str = obj.get('pos', "")
+        if not pos_str:
+            continue
 
-                    llx = cx_pt - (width_pt / 2.0)
-                    urx = cx_pt + (width_pt / 2.0)
-                    lly = cy_pt - (height_pt / 2.0)
-                    ury = cy_pt + (height_pt / 2.0)
+        pos_coords = [float(x) for x in pos_str.split(',')]
+        cx_pt, cy_pt = pos_coords
 
-                    pixel_lly = (graph_height_pt - ury) * dpi_mult
-                    pixel_ury = (graph_height_pt - lly) * dpi_mult
-                    pixel_llx = llx * dpi_mult
-                    pixel_urx = urx * dpi_mult
+        width_pt = float(obj.get('width', 0)) * 72.0
+        height_pt = float(obj.get('height', 0)) * 72.0
 
-                    pad = 5
-                    x = pixel_llx - pad
-                    y = pixel_lly - pad
-                    w = (pixel_urx - pixel_llx) + (pad * 2)
-                    h = (pixel_ury - pixel_lly) + (pad * 2)
+        llx = cx_pt - (width_pt / 2.0)
+        urx = cx_pt + (width_pt / 2.0)
+        lly = cy_pt - (height_pt / 2.0)
+        ury = cy_pt + (height_pt / 2.0)
 
-                    rect_svg = f'<rect x="{x}" y="{y}" width="{w}" height="{h}" fill="#FFE3A8" stroke="#333" stroke-width="1"></rect>'
+        graph_bb = layout_data['bb'].split(',')
+        graph_height_pt = float(graph_bb[3])
 
-                    node_data.append({
-                        'label': obj['label'],
-                        'rect': rect_svg
-                    })
-                    all_rects.append(rect_svg)
+        dpi_mult = 96.0 / 72.0
 
-            if 'objects' in obj:
-                process_objects(obj['objects'])
+        pixel_lly = (graph_height_pt - ury) * dpi_mult
+        pixel_ury = (graph_height_pt - lly) * dpi_mult
+        pixel_llx = llx * dpi_mult
+        pixel_urx = urx * dpi_mult
 
-    # Root objects contains both direct nodes and clusters (which contain their own objects)
-    process_objects(layout_data.get('objects', []))
+        pad = 5
+        x = pixel_llx - pad
+        y = pixel_lly - pad
+        w = (pixel_urx - pixel_llx) + (pad * 2)
+        h = (pixel_ury - pixel_lly) + (pad * 2)
+
+        rect_svg = f'<rect x="{x}" y="{y}" width="{w}" height="{h}" fill="#FFE3A8" stroke="#333" stroke-width="1"></rect>'
+
+        node_data.append({
+            'label': obj['label'],
+            'rect': rect_svg
+        })
+        all_rects.append(rect_svg)
 
     # Now create a "Hide All, Guess One" style note for each node
     for target_node in node_data:
