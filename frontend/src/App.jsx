@@ -64,10 +64,19 @@ function App() {
     try {
       const apiUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000/generate';
 
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        body: formData,
-      });
+      let response;
+      try {
+        response = await fetch(apiUrl, {
+          method: 'POST',
+          body: formData,
+        });
+      } catch (networkError) {
+        throw new Error(
+          `Failed to connect to the backend server at ${apiUrl}. ` +
+          `If you are running this locally, ensure you have started the backend with 'uvicorn main:app --port 8000'. ` +
+          `If this is deployed, ensure VITE_BACKEND_URL is set correctly.`
+        );
+      }
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
