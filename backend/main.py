@@ -39,9 +39,10 @@ def cleanup_dir(dirpath: str):
 @app.post("/generate")
 def generate_anki_deck(
     background_tasks: BackgroundTasks,
-    file: UploadFile = File(...),
     api_key: str = Form(...),
-    mode: str = Form(...) # 'compounds' or 'pathway'
+    mode: str = Form(...), # 'compounds' or 'pathway'
+    file: Optional[UploadFile] = File(None),
+    text_content: Optional[str] = Form(None)
 ):
     if not api_key:
         raise HTTPException(status_code=400, detail="Gemini API key is required")
@@ -49,19 +50,29 @@ def generate_anki_deck(
     if mode not in ['compounds', 'pathway']:
         raise HTTPException(status_code=400, detail="Invalid mode selected")
 
-    # Read the file content (synchronous reading is safer here since the whole block is sync to avoid blocking loop)
-    content = file.file.read()
-
-    # Sanitize the filename to prevent path traversal
-    filename = os.path.basename(file.filename) if file.filename else "upload.txt"
+    if not file and not text_content:
+        raise HTTPException(status_code=400, detail="Either file or text_content must be provided")
 
     # Create a temporary directory for processing
     tmp_dir = tempfile.mkdtemp()
 
-    # Save the uploaded file temporarily
-    file_path = os.path.join(tmp_dir, filename)
-    with open(file_path, "wb") as f:
-        f.write(content)
+    if file:
+        # Read the file content (synchronous reading is safer here since the whole block is sync to avoid blocking loop)
+        content = file.file.read()
+
+        # Sanitize the filename to prevent path traversal
+        filename = os.path.basename(file.filename) if file.filename else "upload.txt"
+
+        # Save the uploaded file temporarily
+        file_path = os.path.join(tmp_dir, filename)
+        with open(file_path, "wb") as f:
+            f.write(content)
+    else:
+        # Handle plain text input
+        filename = "input.txt"
+        file_path = os.path.join(tmp_dir, filename)
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(text_content)
 
     deck_filepath = os.path.join(tmp_dir, f"{uuid.uuid4()}.apkg")
 

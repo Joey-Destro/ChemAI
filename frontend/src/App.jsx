@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
-import { UploadCloud, Key, Download, Loader2, AlertCircle, FileText, CheckCircle2, FlaskConical, Network } from 'lucide-react';
+import { UploadCloud, Key, Download, Loader2, AlertCircle, FileText, CheckCircle2, FlaskConical, Network, Type } from 'lucide-react';
 
 function App() {
   const [apiKey, setApiKey] = useState('');
   const [file, setFile] = useState(null);
+  const [textContent, setTextContent] = useState('');
+  const [inputType, setInputType] = useState('file'); // 'file' or 'text'
   const [mode, setMode] = useState('compounds');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -39,8 +41,12 @@ function App() {
       setError("Please provide your Google Gemini API Key.");
       return;
     }
-    if (!file) {
+    if (inputType === 'file' && !file) {
       setError("Please upload a file (PDF or TXT).");
+      return;
+    }
+    if (inputType === 'text' && !textContent.trim()) {
+      setError("Please enter some text.");
       return;
     }
 
@@ -49,7 +55,11 @@ function App() {
     const formData = new FormData();
     formData.append('api_key', apiKey);
     formData.append('mode', mode);
-    formData.append('file', file);
+    if (inputType === 'file') {
+      formData.append('file', file);
+    } else {
+      formData.append('text_content', textContent);
+    }
 
     try {
       const apiUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000/generate';
@@ -168,35 +178,77 @@ function App() {
               </div>
             </div>
 
-            {/* File Upload */}
+            {/* Input Selection */}
             <div className="space-y-3">
-              <label className="block text-sm font-medium text-slate-300">Source Document</label>
-              <div className="relative group">
-                <div className={`flex justify-center px-6 pt-8 pb-10 border-2 border-dashed rounded-2xl transition-all ${
-                  file ? 'border-purple-500/50 bg-purple-900/10' : 'border-slate-700 hover:border-slate-500 hover:bg-slate-800/30 bg-slate-900/40'
-                }`}>
-                  <div className="space-y-3 text-center">
-                    {file ? (
-                      <FileText className="mx-auto h-12 w-12 text-purple-400" />
-                    ) : (
-                      <UploadCloud className="mx-auto h-12 w-12 text-slate-500 group-hover:text-slate-400 transition-colors" />
-                    )}
-                    <div className="flex text-sm text-slate-400 justify-center">
-                      <label
-                        htmlFor="file-upload"
-                        className="relative cursor-pointer rounded-md font-medium text-purple-400 hover:text-purple-300 focus-within:outline-none transition-colors"
-                      >
-                        <span>{file ? 'Change file' : 'Browse to upload'}</span>
-                        <input id="file-upload" name="file-upload" type="file" className="sr-only" accept=".pdf,.txt" onChange={handleFileChange} />
-                      </label>
-                      {!file && <span className="pl-1">or drag and drop</span>}
-                    </div>
-                    <p className="text-xs text-slate-500">
-                      {file ? <span className="text-slate-300 font-medium">{file.name}</span> : "PDF or TXT up to 10MB"}
-                    </p>
-                  </div>
+              <div className="flex justify-between items-end">
+                <label className="block text-sm font-medium text-slate-300">Source Document</label>
+                <div className="flex space-x-1 bg-slate-900/50 p-1 rounded-lg border border-slate-700/50">
+                  <button
+                    type="button"
+                    onClick={() => setInputType('file')}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                      inputType === 'file' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    File Upload
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setInputType('text')}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                      inputType === 'text' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    Paste Text
+                  </button>
                 </div>
               </div>
+
+              {inputType === 'file' ? (
+                <div className="relative group">
+                  <div className={`flex justify-center px-6 pt-8 pb-10 border-2 border-dashed rounded-2xl transition-all ${
+                    file ? 'border-purple-500/50 bg-purple-900/10' : 'border-slate-700 hover:border-slate-500 hover:bg-slate-800/30 bg-slate-900/40'
+                  }`}>
+                    <div className="space-y-3 text-center">
+                      {file ? (
+                        <FileText className="mx-auto h-12 w-12 text-purple-400" />
+                      ) : (
+                        <UploadCloud className="mx-auto h-12 w-12 text-slate-500 group-hover:text-slate-400 transition-colors" />
+                      )}
+                      <div className="flex text-sm text-slate-400 justify-center">
+                        <label
+                          htmlFor="file-upload"
+                          className="relative cursor-pointer rounded-md font-medium text-purple-400 hover:text-purple-300 focus-within:outline-none transition-colors"
+                        >
+                          <span>{file ? 'Change file' : 'Browse to upload'}</span>
+                          <input id="file-upload" name="file-upload" type="file" className="sr-only" accept=".pdf,.txt" onChange={handleFileChange} />
+                        </label>
+                        {!file && <span className="pl-1">or drag and drop</span>}
+                      </div>
+                      <p className="text-xs text-slate-500">
+                        {file ? <span className="text-slate-300 font-medium">{file.name}</span> : "PDF or TXT up to 10MB"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="relative">
+                  <div className="absolute top-3 left-3 flex items-center pointer-events-none">
+                    <Type className="h-5 w-5 text-slate-500" />
+                  </div>
+                  <textarea
+                    rows={6}
+                    className="block w-full pl-11 pr-4 py-3 bg-slate-900/50 border border-slate-700 rounded-xl text-slate-200 placeholder-slate-500 focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500 transition-all outline-none resize-y"
+                    placeholder="Paste your biochemistry text here..."
+                    value={textContent}
+                    onChange={(e) => {
+                      setTextContent(e.target.value);
+                      setError(null);
+                      setSuccess(false);
+                    }}
+                  />
+                </div>
+              )}
             </div>
 
             {/* Feedback Messages */}
