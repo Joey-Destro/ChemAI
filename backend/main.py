@@ -10,7 +10,11 @@ import shutil
 from typing import Optional
 from services.anki_service import create_standard_compounds_deck, create_pathway_deck
 
-app = FastAPI(title="Anki Biochemistry Generator API")
+app = FastAPI(
+    title="Anki Biochemistry Generator API",
+    docs_url=None,   # Disable Swagger UI
+    redoc_url=None   # Disable ReDoc
+)
 
 # Setup CORS
 app.add_middleware(
