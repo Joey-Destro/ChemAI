@@ -174,20 +174,21 @@ def create_pathway_deck(file_path: str, api_key: str, output_deck_path: str) -> 
 
     Tvá striktní pravidla:
     1. ZÁKAZ SHRNUTÍ: Nesmíš dráhu zkrátit. Musíš uvést VŠECHNY meziprodukty.
-    2. ENZYMY A KOFAKTORY JSOU POVINNÉ: Každá reakce (hrana) musí mít svůj katalyzující enzym zanesený do grafu jako UZEL (node), nikoliv jen jako text na hraně. K enzymu připoj i klíčové koenzymy/kofaktory (např. NAD+, ATP), pokud jsou v textu zmíněny.
-    3. STRUKTURA GRAFU:
+    2. ENZYMY A KOFAKTORY JSOU POVINNÉ: Každá reakce musí mít enzym jako UZEL.
+    3. KOMPARTMENTY: Pokud reakce probíhá ve specifické organele/kompartmentu (např. Mitochondrie, Cytosol), MUSÍŠ uzel zařadit do příslušného kompartmentu. Pokud není kompartment jasný, nepřiřazuj ho.
+    4. STRUKTURA GRAFU:
        - Substráty a produkty budou uzly typu "metabolite".
-       - Enzymy (a jejich kofaktory) budou uzly typu "enzyme".
-       - Propoj substrát s enzymem a následně enzym s produktem. Tím zajistíme, že enzym bude vizuálně "mezi" nimi a půjde ho pomocí Image Occlusion skrýt!
-    4. Jazyk: Česká bezchybná lékařská biochemická terminologie.
+       - Enzymy budou uzly typu "enzyme".
+       - Propoj substrát -> enzym -> produkt.
+    5. Jazyk: Česká terminologie.
 
     VYŽADOVANÝ VÝSTUP:
-    Vrať POUZE validní JSON reprezentující graf s přesně touto strukturou:
+    Vrať POUZE validní JSON s přesně touto strukturou:
     {{
         "nodes": [
-            {{"id": "n1", "label": "Glukóza", "type": "metabolite"}},
-            {{"id": "e1", "label": "Hexokináza (ATP -> ADP)", "type": "enzyme"}},
-            {{"id": "n2", "label": "Glukóza-6-fosfát", "type": "metabolite"}}
+            {{"id": "n1", "label": "Glukóza", "type": "metabolite", "compartment": "Cytosol"}},
+            {{"id": "e1", "label": "Hexokináza", "type": "enzyme", "compartment": "Cytosol"}},
+            {{"id": "n2", "label": "Glukóza-6-fosfát", "type": "metabolite", "compartment": "Cytosol"}}
         ],
         "edges": [
             {{"source": "n1", "target": "e1"}},
@@ -207,44 +208,57 @@ def create_pathway_deck(file_path: str, api_key: str, output_deck_path: str) -> 
     except Exception as e:
         raise Exception(f"Failed to parse Gemini response as JSON: {response.text}")
 
-    # Render Graphviz and get layout data
     tmp_dir = tempfile.mkdtemp()
-    master_svg_path = os.path.join(tmp_dir, "master") # Graphviz adds extension
+    master_svg_path = os.path.join(tmp_dir, "master")
 
-    # Use a more modern and readable font/styling for the graph
     dot = graphviz.Digraph(format='svg')
-    dot.attr(rankdir='TB', nodesep='0.6', ranksep='0.8', fontname='Helvetica', bgcolor='white')
+    dot.attr(rankdir='TB', nodesep='0.8', ranksep='1.0', fontname='Helvetica', bgcolor='white', compound='true')
 
     nodes = graph_data.get("nodes", [])
     edges = graph_data.get("edges", [])
 
+    # Group nodes by compartment
+    compartments = {}
     for node in nodes:
-        node_type = node.get('type', 'metabolite')
-        if node_type == 'enzyme':
-            # Highlight enzymes with a distinct color and shape
-            dot.node(node['id'], node['label'], shape='box', style='filled,rounded', fillcolor='#E1F5FE', color='#0288D1', fontname='Helvetica-Bold', fontcolor='#01579B', margin='0.2,0.1')
+        comp = node.get('compartment', 'Unassigned')
+        if not comp: comp = 'Unassigned'
+        if comp not in compartments:
+            compartments[comp] = []
+        compartments[comp].append(node)
+
+    for comp_name, comp_nodes in compartments.items():
+        if comp_name == 'Unassigned':
+            for node in comp_nodes:
+                if node.get('type', 'metabolite') == 'enzyme':
+                    dot.node(node['id'], node['label'], shape='box', style='filled,rounded', fillcolor='#E1F5FE', color='#0288D1', fontname='Helvetica-Bold', fontcolor='#01579B', margin='0.2,0.1')
+                else:
+                    dot.node(node['id'], node['label'], shape='oval', style='filled', fillcolor='#F3E5F5', color='#7B1FA2', fontname='Helvetica', fontcolor='#4A148C')
         else:
-            # Standard metabolites
-            dot.node(node['id'], node['label'], shape='oval', style='filled', fillcolor='#F3E5F5', color='#7B1FA2', fontname='Helvetica', fontcolor='#4A148C')
+            # Create a cluster for the compartment
+            with dot.subgraph(name=f'cluster_{comp_name}') as c:
+                c.attr(label=comp_name, style='dashed', color='gray', fontname='Helvetica-Bold', fontsize='16', fontcolor='#424242')
+                for node in comp_nodes:
+                    if node.get('type', 'metabolite') == 'enzyme':
+                        c.node(node['id'], node['label'], shape='box', style='filled,rounded', fillcolor='#E1F5FE', color='#0288D1', fontname='Helvetica-Bold', fontcolor='#01579B', margin='0.2,0.1')
+                    else:
+                        c.node(node['id'], node['label'], shape='oval', style='filled', fillcolor='#F3E5F5', color='#7B1FA2', fontname='Helvetica', fontcolor='#4A148C')
 
     for edge in edges:
         dot.edge(edge['source'], edge['target'], color='#757575', arrowsize='0.8')
 
-    # Render to SVG (SVG contains bounding box info)
     dot.render(master_svg_path)
 
     # Render to PNG for Anki
     dot.format = 'png'
     master_png_path = dot.render(master_svg_path + "_png")
 
-    # We will use the layout output format 'json' from graphviz to get exact coordinates
+    # Use JSON layout to get coordinates
     dot.format = 'json'
     json_path = dot.render(master_svg_path + "_layout")
 
     with open(json_path, 'r') as f:
         layout_data = json.load(f)
 
-    # Open the rendered master PNG to get its dimensions
     master_img = Image.open(master_png_path)
     img_width, img_height = master_img.size
 
@@ -255,56 +269,53 @@ def create_pathway_deck(file_path: str, api_key: str, output_deck_path: str) -> 
     media_files = [master_png_path]
     master_filename = os.path.basename(master_png_path)
 
-    # Parse graphviz JSON layout
-    objects = layout_data.get('objects', [])
-
-    # We will gather all SVG rectangles for the "hide all" mask
     all_rects = []
     node_data = []
 
-    for obj in objects:
-        if 'name' not in obj or 'label' not in obj:
-            continue
+    # Graphviz DPI logic for translating coordinates
+    dpi_mult = 96.0 / 72.0
+    graph_bb = layout_data['bb'].split(',')
+    graph_height_pt = float(graph_bb[3])
 
-        # Nodes don't have 'bb', they have 'pos' (center "x,y"), 'width' (inches), and 'height' (inches)
-        pos_str = obj.get('pos', "")
-        if not pos_str:
-            continue
+    def process_objects(objects_list):
+        for obj in objects_list:
+            if 'name' in obj and 'label' in obj and not obj['name'].startswith('cluster_'):
+                pos_str = obj.get('pos', "")
+                if pos_str:
+                    pos_coords = [float(x) for x in pos_str.split(',')]
+                    cx_pt, cy_pt = pos_coords
+                    width_pt = float(obj.get('width', 0)) * 72.0
+                    height_pt = float(obj.get('height', 0)) * 72.0
 
-        pos_coords = [float(x) for x in pos_str.split(',')]
-        cx_pt, cy_pt = pos_coords
+                    llx = cx_pt - (width_pt / 2.0)
+                    urx = cx_pt + (width_pt / 2.0)
+                    lly = cy_pt - (height_pt / 2.0)
+                    ury = cy_pt + (height_pt / 2.0)
 
-        width_pt = float(obj.get('width', 0)) * 72.0
-        height_pt = float(obj.get('height', 0)) * 72.0
+                    pixel_lly = (graph_height_pt - ury) * dpi_mult
+                    pixel_ury = (graph_height_pt - lly) * dpi_mult
+                    pixel_llx = llx * dpi_mult
+                    pixel_urx = urx * dpi_mult
 
-        llx = cx_pt - (width_pt / 2.0)
-        urx = cx_pt + (width_pt / 2.0)
-        lly = cy_pt - (height_pt / 2.0)
-        ury = cy_pt + (height_pt / 2.0)
+                    pad = 5
+                    x = pixel_llx - pad
+                    y = pixel_lly - pad
+                    w = (pixel_urx - pixel_llx) + (pad * 2)
+                    h = (pixel_ury - pixel_lly) + (pad * 2)
 
-        graph_bb = layout_data['bb'].split(',')
-        graph_height_pt = float(graph_bb[3])
+                    rect_svg = f'<rect x="{x}" y="{y}" width="{w}" height="{h}" fill="#FFE3A8" stroke="#333" stroke-width="1"></rect>'
 
-        dpi_mult = 96.0 / 72.0
+                    node_data.append({
+                        'label': obj['label'],
+                        'rect': rect_svg
+                    })
+                    all_rects.append(rect_svg)
 
-        pixel_lly = (graph_height_pt - ury) * dpi_mult
-        pixel_ury = (graph_height_pt - lly) * dpi_mult
-        pixel_llx = llx * dpi_mult
-        pixel_urx = urx * dpi_mult
+            if 'objects' in obj:
+                process_objects(obj['objects'])
 
-        pad = 5
-        x = pixel_llx - pad
-        y = pixel_lly - pad
-        w = (pixel_urx - pixel_llx) + (pad * 2)
-        h = (pixel_ury - pixel_lly) + (pad * 2)
-
-        rect_svg = f'<rect x="{x}" y="{y}" width="{w}" height="{h}" fill="#FFE3A8" stroke="#333" stroke-width="1"></rect>'
-
-        node_data.append({
-            'label': obj['label'],
-            'rect': rect_svg
-        })
-        all_rects.append(rect_svg)
+    # Root objects contains both direct nodes and clusters (which contain their own objects)
+    process_objects(layout_data.get('objects', []))
 
     # Now create a "Hide All, Guess One" style note for each node
     for target_node in node_data:
