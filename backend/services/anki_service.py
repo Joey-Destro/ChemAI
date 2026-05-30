@@ -170,21 +170,33 @@ def create_pathway_deck(file_path: str, api_key: str, output_deck_path: str) -> 
     text_content = extract_text(file_path)
 
     prompt = f"""
-    Analyze the following text and identify metabolic pathways (like glycolysis, citric acid cycle, etc.).
-    Extract the main pathway as a directed graph.
-    Return ONLY a valid JSON object representing the graph. The JSON MUST follow this exact structure:
+    Jsi přísný zkoušející z lékařské biochemie. Tvým úkolem je extrahovat KOMPLETNÍ, absolutně detailní metabolické dráhy z textu a převést je na graf.
+
+    Tvá striktní pravidla:
+    1. ZÁKAZ SHRNUTÍ: Nesmíš dráhu zkrátit. Musíš uvést VŠECHNY meziprodukty.
+    2. ENZYMY A KOFAKTORY JSOU POVINNÉ: Každá reakce (hrana) musí mít svůj katalyzující enzym zanesený do grafu jako UZEL (node), nikoliv jen jako text na hraně. K enzymu připoj i klíčové koenzymy/kofaktory (např. NAD+, ATP), pokud jsou v textu zmíněny.
+    3. STRUKTURA GRAFU:
+       - Substráty a produkty budou uzly typu "metabolite".
+       - Enzymy (a jejich kofaktory) budou uzly typu "enzyme".
+       - Propoj substrát s enzymem a následně enzym s produktem. Tím zajistíme, že enzym bude vizuálně "mezi" nimi a půjde ho pomocí Image Occlusion skrýt!
+    4. Jazyk: Česká bezchybná lékařská biochemická terminologie.
+
+    VYŽADOVANÝ VÝSTUP:
+    Vrať POUZE validní JSON reprezentující graf s přesně touto strukturou:
     {{
         "nodes": [
-            {{"id": "n1", "label": "Glucose"}},
-            {{"id": "n2", "label": "Glucose-6-phosphate"}}
+            {{"id": "n1", "label": "Glukóza", "type": "metabolite"}},
+            {{"id": "e1", "label": "Hexokináza (ATP -> ADP)", "type": "enzyme"}},
+            {{"id": "n2", "label": "Glukóza-6-fosfát", "type": "metabolite"}}
         ],
         "edges": [
-            {{"source": "n1", "target": "n2", "label": "Hexokinase"}}
+            {{"source": "n1", "target": "e1"}},
+            {{"source": "e1", "target": "n2"}}
         ]
     }}
-    Do not include markdown blocks or any other text.
+    Nevypisuj žádný markdown, žádný úvodní ani závěrečný text.
 
-    Text:
+    Text k analýze:
     {text_content[:30000]}
     """
 
@@ -199,16 +211,24 @@ def create_pathway_deck(file_path: str, api_key: str, output_deck_path: str) -> 
     tmp_dir = tempfile.mkdtemp()
     master_svg_path = os.path.join(tmp_dir, "master") # Graphviz adds extension
 
+    # Use a more modern and readable font/styling for the graph
     dot = graphviz.Digraph(format='svg')
-    dot.attr(rankdir='TB')
+    dot.attr(rankdir='TB', nodesep='0.6', ranksep='0.8', fontname='Helvetica', bgcolor='white')
 
     nodes = graph_data.get("nodes", [])
     edges = graph_data.get("edges", [])
 
     for node in nodes:
-        dot.node(node['id'], node['label'])
+        node_type = node.get('type', 'metabolite')
+        if node_type == 'enzyme':
+            # Highlight enzymes with a distinct color and shape
+            dot.node(node['id'], node['label'], shape='box', style='filled,rounded', fillcolor='#E1F5FE', color='#0288D1', fontname='Helvetica-Bold', fontcolor='#01579B', margin='0.2,0.1')
+        else:
+            # Standard metabolites
+            dot.node(node['id'], node['label'], shape='oval', style='filled', fillcolor='#F3E5F5', color='#7B1FA2', fontname='Helvetica', fontcolor='#4A148C')
+
     for edge in edges:
-        dot.edge(edge['source'], edge['target'], label=edge.get('label', ''))
+        dot.edge(edge['source'], edge['target'], color='#757575', arrowsize='0.8')
 
     # Render to SVG (SVG contains bounding box info)
     dot.render(master_svg_path)
