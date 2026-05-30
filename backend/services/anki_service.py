@@ -16,13 +16,14 @@ COMPOUND_MODEL = genanki.Model(
   'Standard Compound Model',
   fields=[
     {'name': 'Image'},
-    {'name': 'Name'},
+    {'name': 'TrivialName'},
+    {'name': 'IupacName'},
   ],
   templates=[
     {
       'name': 'Card 1',
       'qfmt': '{{Image}}',
-      'afmt': '{{FrontSide}}<hr id="answer">{{Name}}',
+      'afmt': '{{FrontSide}}<hr id="answer"><b>{{TrivialName}}</b><br><span style="color:gray; font-size:14px;">{{IupacName}}</span>',
     },
   ])
 
@@ -90,12 +91,28 @@ def create_standard_compounds_deck(file_path: str, api_key: str, output_deck_pat
     text_content = extract_text(file_path)
 
     prompt = f"""
-    Extract a list of all chemical compounds and molecules from the following text.
-    For each compound, provide its standard chemical name and its corresponding SMILES string.
-    Return ONLY a valid JSON array of objects, where each object has 'name' and 'smiles' keys.
-    Do not include markdown blocks or any other text.
+    Jsi přísný zkoušející z lékařské biochemie. Tvým úkolem je ze zadaného seznamu látek vygenerovat ABSOLUTNĚ VYČERPÁVAJÍCÍ sadu.
 
-    Text:
+    Tvá striktní pravidla pro generování, která nesmíš porušit:
+
+    1. ZÁKAZ SHRNUTÍ A ZKRACOVÁNÍ: Nesmíš vynechat jedinou látku. Musíš projít dokument řádek po řádku. Z každé jednotlivé látky zmíněné v textu musí vzniknout samostatný objekt.
+
+    2. ROZBALENÍ SKUPIN A DRAH (KRITICKÉ): Pokud dokument zmiňuje metabolickou dráhu (např. "citrátový cyklus", "glykolýza", "močovinový cyklus") nebo skupinu látek (např. "20 proteinogenních aminokyselin", "monokarboxylové kyseliny po C5", "základní alifatické uhlovodíky do C10"), tvým úkolem je tyto skupiny DEKÓDOVAT. Vygeneruješ samostatný objekt pro KAŽDÝ JEDEN meziprodukt a KAŽDOU JEDNU konkrétní molekulu, která do dané dráhy nebo skupiny patří.
+
+    3. DVOJÍ NÁZVOSLOVÍ: Každý vygenerovaný objekt musí obsahovat jak běžně užívaný triviální název, tak přesný systematický název (IUPAC), pokud existuje.
+
+    4. JAZYK: Veškerý výstup, popisy a názvosloví musí být v bezchybné češtině.
+
+    5. STRUKTURA (SMILES): Pro každou sloučeninu musíš dodat její platný chemický řetězec SMILES, ze kterého se vygeneruje 2D struktura.
+
+    VYŽADOVANÝ VÝSTUP:
+    Vrať POUZE validní JSON pole objektů. Každý objekt musí mít PŘESNĚ tyto tři klíče:
+    - "trivial_name" (Triviální název v češtině)
+    - "iupac_name" (Systémový IUPAC název v češtině)
+    - "smiles" (Platný SMILES kód)
+    Nevypisuj žádný markdown, žádný úvodní ani závěrečný text.
+
+    Text k analýze:
     {text_content[:30000]} # Limit to avoid token overflow
     """
 
@@ -116,10 +133,11 @@ def create_standard_compounds_deck(file_path: str, api_key: str, output_deck_pat
     tmp_dir = tempfile.mkdtemp()
 
     for comp in compounds:
-        name = comp.get('name')
+        trivial_name = comp.get('trivial_name')
+        iupac_name = comp.get('iupac_name')
         smiles = comp.get('smiles')
 
-        if not smiles or not name:
+        if not smiles or not trivial_name:
             continue
 
         # Generate RDKit image
@@ -136,7 +154,7 @@ def create_standard_compounds_deck(file_path: str, api_key: str, output_deck_pat
         # Add to deck
         note = genanki.Note(
             model=COMPOUND_MODEL,
-            fields=[f'<img src="{img_filename}">', name]
+            fields=[f'<img src="{img_filename}">', trivial_name, iupac_name or ""]
         )
         deck.add_note(note)
 
