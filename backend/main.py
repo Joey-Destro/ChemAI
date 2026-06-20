@@ -41,6 +41,7 @@ def generate_anki_deck(
     background_tasks: BackgroundTasks,
     api_key: str = Form(...),
     mode: str = Form(...), # 'compounds' or 'pathway'
+    subject: str = Form("Lékařská biochemie"),
     file: Optional[UploadFile] = File(None),
     text_content: Optional[str] = Form(None)
 ):
@@ -78,9 +79,9 @@ def generate_anki_deck(
 
     try:
         if mode == 'compounds':
-            deck_filepath = create_standard_compounds_deck(file_path, api_key, deck_filepath)
+            deck_filepath = create_standard_compounds_deck(file_path, api_key, subject, deck_filepath)
         elif mode == 'pathway':
-            deck_filepath = create_pathway_deck(file_path, api_key, deck_filepath)
+            deck_filepath = create_pathway_deck(file_path, api_key, subject, deck_filepath)
 
         # Add cleanup task to run after response is sent
         background_tasks.add_task(cleanup_dir, tmp_dir)

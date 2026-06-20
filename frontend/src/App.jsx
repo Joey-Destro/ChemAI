@@ -7,6 +7,7 @@ function App() {
   const [textContent, setTextContent] = useState('');
   const [inputType, setInputType] = useState('file'); // 'file' or 'text'
   const [mode, setMode] = useState('compounds');
+  const [subject, setSubject] = useState('Lékařská biochemie');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
@@ -55,6 +56,7 @@ function App() {
     const formData = new FormData();
     formData.append('api_key', apiKey);
     formData.append('mode', mode);
+    formData.append('subject', subject);
     if (inputType === 'file') {
       formData.append('file', file);
     } else {
@@ -121,7 +123,7 @@ function App() {
             Synapse Deck
           </h1>
           <p className="mt-4 text-lg text-slate-300 max-w-xl mx-auto font-light">
-            AI-powered Anki flashcard generation for biochemistry. Transform your PDFs into highly visual, structural learning tools instantly.
+            AI-powered Anki flashcard generation for any subject. Transform your PDFs into highly visual learning tools instantly.
           </p>
         </div>
 
@@ -145,6 +147,23 @@ function App() {
                   placeholder="AIzaSy..."
                   value={apiKey}
                   onChange={handleKeyChange}
+                />
+              </div>
+            </div>
+
+            {/* Subject Selection */}
+            <div className="space-y-3">
+              <label htmlFor="subject" className="block text-sm font-medium text-slate-300">
+                Předmět / Obor
+              </label>
+              <div className="relative group">
+                <input
+                  type="text"
+                  id="subject"
+                  className="block w-full px-4 py-3 bg-slate-900/50 border border-slate-700 rounded-xl text-slate-200 placeholder-slate-500 focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500 transition-all outline-none"
+                  placeholder="např. Lékařská biochemie, Anatomie..."
+                  value={subject}
+                  onChange={(e) => setSubject(e.target.value)}
                 />
               </div>
             </div>

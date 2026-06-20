@@ -84,32 +84,32 @@ def extract_text(file_path: str) -> str:
         with open(file_path, 'r', encoding='utf-8') as f:
             return f.read()
 
-def create_standard_compounds_deck(file_path: str, api_key: str, output_deck_path: str) -> str:
+def create_standard_compounds_deck(file_path: str, api_key: str, subject: str, output_deck_path: str) -> str:
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel('gemini-3.5-flash')
 
     text_content = extract_text(file_path)
 
     prompt = f"""
-    Jsi přísný zkoušející z lékařské biochemie. Tvým úkolem je ze zadaného seznamu látek vygenerovat ABSOLUTNĚ VYČERPÁVAJÍCÍ sadu.
+    Jsi přísný zkoušející pro předmět/obor: {subject}. Tvým úkolem je ze zadaného textu vygenerovat ABSOLUTNĚ VYČERPÁVAJÍCÍ sadu klíčových pojmů/látek.
 
     Tvá striktní pravidla pro generování, která nesmíš porušit:
 
-    1. ZÁKAZ SHRNUTÍ A ZKRACOVÁNÍ: Nesmíš vynechat jedinou látku. Musíš projít dokument řádek po řádku. Z každé jednotlivé látky zmíněné v textu musí vzniknout samostatný objekt.
+    1. ZÁKAZ SHRNUTÍ A ZKRACOVÁNÍ: Nesmíš vynechat žádný důležitý pojem/látku. Musíš projít dokument řádek po řádku. Z každého jednotlivého pojmu zmíněného v textu musí vzniknout samostatný objekt.
 
-    2. ROZBALENÍ SKUPIN A DRAH (KRITICKÉ): Pokud dokument zmiňuje metabolickou dráhu (např. "citrátový cyklus", "glykolýza", "močovinový cyklus") nebo skupinu látek (např. "20 proteinogenních aminokyselin", "monokarboxylové kyseliny po C5", "základní alifatické uhlovodíky do C10"), tvým úkolem je tyto skupiny DEKÓDOVAT. Vygeneruješ samostatný objekt pro KAŽDÝ JEDEN meziprodukt a KAŽDOU JEDNU konkrétní molekulu, která do dané dráhy nebo skupiny patří.
+    2. ROZBALENÍ SKUPIN A DRAH (KRITICKÉ): Pokud dokument zmiňuje logickou skupinu, proces nebo dráhu, tvým úkolem je tyto skupiny DEKÓDOVAT. Vygeneruješ samostatný objekt pro KAŽDOU JEDNU konkrétní položku, která do dané skupiny nebo procesu patří.
 
-    3. DVOJÍ NÁZVOSLOVÍ: Každý vygenerovaný objekt musí obsahovat jak běžně užívaný triviální název, tak přesný systematický název (IUPAC), pokud existuje.
+    3. DVOJÍ NÁZVOSLOVÍ: Každý vygenerovaný objekt musí obsahovat hlavní (triviální/běžný) název a také případný odborný/systematický název (např. IUPAC v chemii, latinský v anatomii), pokud existuje.
 
-    4. JAZYK: Veškerý výstup, popisy a názvosloví musí být v bezchybné češtině.
+    4. JAZYK: Veškerý výstup, popisy a názvosloví musí být v jazyce textu nebo v bezchybné češtině (dle kontextu).
 
-    5. STRUKTURA (SMILES): Pro každou sloučeninu musíš dodat její platný chemický řetězec SMILES, ze kterého se vygeneruje 2D struktura.
+    5. STRUKTURA (SMILES): Pokud obor souvisí s chemií nebo biochemií a pojem představuje konkrétní molekulu, přidej platný chemický řetězec SMILES. Pokud pojem NENÍ molekula nebo chemická struktura nedává smysl, vrať prázdný řetězec "".
 
     VYŽADOVANÝ VÝSTUP:
     Vrať POUZE validní JSON pole objektů. Každý objekt musí mít PŘESNĚ tyto tři klíče:
-    - "trivial_name" (Triviální název v češtině)
-    - "iupac_name" (Systémový IUPAC název v češtině)
-    - "smiles" (Platný SMILES kód)
+    - "trivial_name" (Hlavní / Triviální název)
+    - "iupac_name" (Odborný / Systémový / Alternativní název, nebo prázdný řetězec)
+    - "smiles" (Platný SMILES kód, nebo prázdný řetězec)
     Nevypisuj žádný markdown, žádný úvodní ani závěrečný text.
 
     Text k analýze:
@@ -126,7 +126,7 @@ def create_standard_compounds_deck(file_path: str, api_key: str, output_deck_pat
 
     # Initialize Anki Deck
     deck_id = 2059400110
-    deck = genanki.Deck(deck_id, 'Biochemistry Compounds')
+    deck = genanki.Deck(deck_id, f'{subject} Concepts')
     package = genanki.Package(deck)
 
     media_files = []
@@ -135,26 +135,27 @@ def create_standard_compounds_deck(file_path: str, api_key: str, output_deck_pat
     for comp in compounds:
         trivial_name = comp.get('trivial_name')
         iupac_name = comp.get('iupac_name')
-        smiles = comp.get('smiles')
+        smiles = comp.get('smiles', "")
 
-        if not smiles or not trivial_name:
+        if not trivial_name:
             continue
 
-        # Generate RDKit image
-        mol = Chem.MolFromSmiles(smiles)
-        if mol is None:
-            continue # Skip invalid SMILES
+        img_field = ""
+        # Generate RDKit image only if SMILES is provided
+        if smiles:
+            mol = Chem.MolFromSmiles(smiles)
+            if mol is not None:
+                img_filename = f"{uuid.uuid4().hex}.png"
+                img_path = os.path.join(tmp_dir, img_filename)
 
-        img_filename = f"{uuid.uuid4().hex}.png"
-        img_path = os.path.join(tmp_dir, img_filename)
-
-        Draw.MolToFile(mol, img_path, size=(300, 300))
-        media_files.append(img_path)
+                Draw.MolToFile(mol, img_path, size=(300, 300))
+                media_files.append(img_path)
+                img_field = f'<img src="{img_filename}">'
 
         # Add to deck
         note = genanki.Note(
             model=COMPOUND_MODEL,
-            fields=[f'<img src="{img_filename}">', trivial_name, iupac_name or ""]
+            fields=[img_field, trivial_name, iupac_name or ""]
         )
         deck.add_note(note)
 
@@ -163,17 +164,17 @@ def create_standard_compounds_deck(file_path: str, api_key: str, output_deck_pat
 
     return output_deck_path
 
-def create_pathway_deck(file_path: str, api_key: str, output_deck_path: str) -> str:
+def create_pathway_deck(file_path: str, api_key: str, subject: str, output_deck_path: str) -> str:
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel('gemini-3.5-flash')
 
     text_content = extract_text(file_path)
 
     prompt = f"""
-    Analyzuj následující text a identifikuj metabolické dráhy (např. glykolýza, citrátový cyklus atd.).
-    Extrahuj hlavní dráhu jako orientovaný graf.
+    Analyzuj následující text z oboru: {subject}. Identifikuj v něm hlavní procesy, vztahy, hierarchie nebo dráhy.
+    Extrahuj tento hlavní proces/hierarchii jako orientovaný graf.
 
-    DŮLEŽITÉ: Veškeré názvy metabolitů, enzymů a drah MUSÍ BÝT V BEZCHYBNÉ ČEŠTINĚ (použij správnou lékařskou biochemickou terminologii).
+    DŮLEŽITÉ: Veškeré názvy a pojmy MUSÍ BÝT V BEZCHYBNÉ ČEŠTINĚ a odpovídat terminologii pro zadaný obor ({subject}).
 
     Vrať POUZE validní JSON objekt reprezentující graf. JSON MUSÍ mít PŘESNĚ tuto strukturu:
     {{
@@ -229,7 +230,7 @@ def create_pathway_deck(file_path: str, api_key: str, output_deck_path: str) -> 
     img_width, img_height = master_img.size
 
     deck_id = 2059400111
-    deck = genanki.Deck(deck_id, 'Biochemistry Pathways')
+    deck = genanki.Deck(deck_id, f'{subject} Processes')
     package = genanki.Package(deck)
 
     media_files = [master_png_path]
@@ -310,7 +311,7 @@ def create_pathway_deck(file_path: str, api_key: str, output_deck_path: str) -> 
                 q_mask,
                 a_mask,
                 f'<img src="{master_filename}">',
-                'Metabolic Pathway',
+                f'{subject} Process',
                 '',
                 target_node['label']
             ]
